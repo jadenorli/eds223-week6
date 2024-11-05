@@ -1,0 +1,221 @@
+---
+title: "EDS_223_week_six_lab"
+format: html
+editor: visual
+---
+
+# Load Libraries
+
+```{r}
+library(terra) # raster handling
+library(tidyverse)
+library(tmap) # map making
+library(kableExtra) # table formatting
+library(spData) # spatial data
+library(spDataLarge) # spatial data
+library(geodata) # spatial data
+library(sf)
+
+```
+
+
+# Read Data
+
+Will get different results if we treate the boundary as a polygon or as a line
+
+```{r}
+#read in the elevation data
+elevation <- terra::rast(system.file("raster/srtm.tif", package = "spDataLarge")) 
+
+#read in the park boundaries
+boundary <- read_sf(system.file("vector/zion.gpkg", package = "spDataLarge"))%>%
+  st_transform(crs = st_crs(elevation))
+
+```
+
+
+
+## a) Check Geometry
+
+```{r}
+#check to see if the park boundary is a polygon version  
+if(sf::st_geometry_type(boundary) == "POLYGON"){
+  print("polygon data")
+} else {
+  print("not polygon data")
+}
+
+#create a new version that is the park polygon version 
+park_polygon <- boundary 
+
+```
+
+
+## b) Convert to Line Data
+
+```{r}
+#create a new object with the line version of the park boundary
+park_border <- boundary %>%
+  sf::st_cast(., "MULTILINESTRING")
+
+```
+
+
+
+## c) Compare Data Sets
+
+```{r}
+#create a plot of the park polygon 
+tm_shape(park_polygon) +
+  tm_polygons()
+
+#create a plot of the park borders 
+tm_shape(park_border) +
+  tm_lines()
+
+```
+
+
+# Rasterize
+
+## a) Rasterize the Polygon Data
+
+```{r}
+#rasterize the polygon data using the geometries from the elevation data not the elevation data itself 
+polygon_raster <- terra::rasterize(park_polygon, elevation)
+
+#plot the raster with anything that is inside Zion having a value of 1
+tm_shape(polygon_raster) +
+  tm_raster()
+
+```
+
+
+## b) Rasterize the Line Data
+
+```{r}
+#rasterize the line data using the geometries from the elevation data not the elevation data itself 
+boundary_raster <- terra::rasterize(park_border, elevation)
+
+#plot the raster with anything that is inside Zion having a value of 1
+tm_shape(boundary_raster) +
+  tm_raster()
+
+```
+
+## c) Changining Spatial Resolution
+
+```{r}
+#create a low resolution template
+template_raster_low <- terra::rast(ext(park_polygon),
+                                   resolution = 0.05,
+                                   crs = st_crs(park_polygon))
+
+#create a high resolution template
+template_raster_high <- terra::rast(ext(park_polygon),
+                                   resolution = 0.1,
+                                   crs = st_crs(park_polygon))
+
+#create a polygon raster from the low resolution template 
+polygon_raster_low <- terra::rasterize(park_polygon, template_raster_low)
+
+#create a polygon raster from the high resolution template 
+polygon_raster_high <- terra::rasterize(park_polygon, template_raster_high)
+
+#plot the low resolution
+tm_shape(polygon_raster_low) +
+  tm_raster()
+
+#plot the high resolution
+tm_shape(polygon_raster_high) +
+  tm_raster()
+
+```
+
+## d) Aggregation 
+
+```{r}
+#load in the cycle hire data 
+cycle_hire_osm <- spData::cycle_hire_osm 
+
+#projected the hire 
+cycle_hire_osm_projected <- st_transform(cycle_hire_osm, crs = "EPSG:27700")
+
+#define a template raster
+template_raster <- terra::rast(ext(cycle_hire_osm_projected),
+                               resolution = 1000,
+                               crs = crs(cycle_hire_osm_projected))
+
+tm_shape(cycle_hire_osm_projected) +
+  tm_symbols()
+
+```
+
+### i) Presence/Absence
+
+```{r}
+#presence/absence of cycle hire points
+ch_raster1 <- terra::rasterize(cycle_hire_osm_projected,
+                               template_raster)
+
+#shows that there is or is not a point in each grid cell 
+tm_shape(ch_raster1) +
+  tm_raster()
+
+```
+
+
+### ii) Density 
+
+```{r}
+#counts the number of higher points in each grid cell
+ch_raster2 <- terra::rasterize(cycle_hire_osm_projected,
+                               template_raster,
+                               fun = "length")
+
+#plot the density of cycle higher points
+tm_shape(ch_raster2) +
+  tm_raster()
+
+```
+
+
+### iii) Attribute Aggregation
+
+```{r}
+#aggregate based on the total capacity attribute 
+ch_raster3 <- terra::rasterize(cycle_hire_osm_projected,
+                               template_raster,
+                               field = "capacity",
+                               fun = sum,
+                               na.rm = TRUE)
+
+#plot the total capacity of cycle higher points
+tm_shape(ch_raster3) +
+  tm_raster(title = "Total Capacity")
+
+```
+
+
+# False Color Imagery 
+
+```{r}
+#load in the data
+L7 <- terra::rast(system.file("tif/L7_ETMs.tif", package = "stars"))
+
+#true color image
+tm_shape(L7) +
+  tm_rgb(r = 3, g = 2, b = 1)
+
+#nir infared (band 4) in red channel, green in blue channel, red in green channel
+##helpful for vegetation 
+tm_shape(L7) +
+  tm_rgb(r = 4, g = 3, b = 2)
+
+
+#another false image
+tm_shape(L7) +
+  tm_rgb(r = 5, g = 4, b = 2)
+
+```
+
