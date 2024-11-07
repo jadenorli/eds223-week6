@@ -1,0 +1,200 @@
+---
+title: "EDS_223_DS6"
+format: html
+editor: visual
+---
+
+# Load Libraries
+
+```{r}
+library(tidyverse)
+library(sf)
+library(terra)
+library(tmap)
+library(tmaptools)
+
+```
+
+
+
+# Read in Data
+
+## a) Pre-Fire Data
+```{r}
+# Set directory for folder
+pre_fire_dir <- here::here("data", "LC80340322016189-SC20170128091153")
+
+# Create a list of all images that have the extension .tif and contain the word band
+pre_fire_bands <- list.files(pre_fire_dir,
+                             pattern = glob2rx("*band*.tif$"),
+                             full.names = TRUE)
+# Create a raster stack
+pre_fire_rast <- rast(pre_fire_bands)
+
+# Read mask raster
+pre_mask <- rast(here::here("data", "LC80340322016189-SC20170128091153", "LC80340322016189LGN00_cfmask_crop.tif"))
+
+```
+
+
+## b) Post-Fire Data
+```{r}
+# Set directory for folder
+post_fire_dir <- here::here("data", "LC80340322016205-SC20170127160728")
+
+# Create a list of all images that have the extension .tif and contain the word band
+post_fire_bands <- list.files(post_fire_dir,
+                              pattern = glob2rx("*band*.tif$"),
+                              full.names = TRUE)
+# Create a raster stack
+post_fire_rast <- rast(post_fire_bands)
+
+# Read mask raster
+post_mask <- rast(here::here("data", "LC80340322016189-SC20170128091153", "LC80340322016189LGN00_cfmask_crop.tif"))
+
+```
+
+
+## c) Rename Bands
+```{r}
+#create a vector that contains the bands information 
+bands <- c("aerosol", "blue", "green", "red", "nir", "swir1", "swir2")
+
+#rename the raster bands for the pre-fire raster
+names(pre_fire_rast) <- bands
+
+#rename the raster bands for the post-fire raster
+names(post_fire_rast) <- bands
+
+```
+
+
+# Mask Clouds and Shadows
+
+## a) Mask Pre-Fire
+```{r}
+#set the values greater than 0 (the clouds and shadows) to NA  for the pre-fire mask
+pre_mask[pre_mask > 0] <- NA
+
+#mask the pre-fire data with the mask of the clouds and shadows
+pre_fire_rast <- mask(pre_fire_rast, mask = pre_mask)
+
+#visualize the pre-fire data
+plot(pre_fire_rast, colNA = "white")
+
+
+```
+
+
+## b) Mask Post-Fire
+```{r}
+#set the values greater than 0 (the clouds and shadows) to NA  for the post-fire mask
+post_mask[post_mask > 0] <- NA
+
+#mask the pre-fire data with the mask of the clouds and shadows
+post_fire_rast <- mask(post_fire_rast, mask = post_mask)
+
+#visualize the post-fire data
+plot(post_fire_rast, colNA = "white")
+
+```
+
+# Plot True Color Composition
+
+## a) Linear Stretch
+```{r}
+#plot the true color composition with terra for the pre-fire data 
+plotRGB(pre_fire_rast,
+        r = 4, g = 3, b = 2,
+        stretch = "lin",
+        colNA = "black")
+
+#plot the true color composition with terra for the post-fire data 
+plotRGB(post_fire_rast,
+        r = 4, g = 3, b = 2,
+        stretch = "lin",
+        colNA = "black")
+
+```
+
+
+## b) Histogram Equalization 
+
+more sensitive to outliers; shouldn't be used with a dataset with huge outliers 
+
+
+```{r}
+#plot the true color composition with terra for the pre-fire data 
+plotRGB(pre_fire_rast,
+        r = 4, g = 3, b = 2,
+        stretch = "hist",
+        colNA = "black")
+
+#plot the true color composition with terra for the post-fire data 
+plotRGB(post_fire_rast,
+        r = 4, g = 3, b = 2,
+        stretch = "hist",
+        colNA = "black")
+
+```
+
+
+# Calculate NBR
+
+## a) NBR Function
+```{r}
+#set up a NBR (Normalize Burn) Function 
+nbr_fun <- function(nir, swir2){
+    (nir - swir2)/(nir + swir2)
+}
+
+```
+
+
+## b) Calculate Difference NBR
+```{r}
+#calculate the NBR for the pre-fire data
+pre_NBR <- lapp(pre_fire_rast[[c("nir", "swir2")]], fun = "nbr_fun")
+
+#calculate the NBR for the post-fire data
+post_NBR <- lapp(post_fire_rast[[c("nir", "swir2")]], fun = "nbr_fun")
+
+#calculate the difference NBR
+dNBR <- pre_NBR-post_NBR
+
+```
+
+
+## c) Reclassify the Severity Level
+```{r}
+#create a list of classification categories 
+categories <- c("Enhanced Regrowth", "Unburned", "Low Severity", "Moderate Severity", "High Severity")
+
+#create a reclassification matrix for the severity level 
+rcl <- matrix(c(-Inf, -0.1, 1, #Enhanced Regrowth
+                -0.1, 0.1, 2, #Unburned
+                0.1, 0.27, 3, #Low Severity
+                0.27, 0.66, 4, #Moderate Severity
+                0.66, Inf, 5), #High Severity
+              ncol = 3, byrow = TRUE) 
+  
+#reclassify the dNBR data
+reclassified <- terra::classify(dNBR, rcl = rcl)
+
+reclassified[is.nan(reclassified)] <- NA
+
+```
+
+
+
+## d) Plot Difference NBR
+```{r}
+#plot the dNBR 
+tm_shape(reclassified) +
+  tm_raster(style = "cat",
+            labels = c(categories, "Missing"),
+            palette = get_brewer_pal("YlOrRd", n = 5, plot = FALSE),
+            title = "Severity Level", colorNA = "black")
+
+```
+
